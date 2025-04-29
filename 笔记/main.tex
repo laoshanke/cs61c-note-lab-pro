@@ -194,7 +194,12 @@ C 允许你给变量命名，并跟踪该名称，甚至该名称所指变量的
 使用汇编语言时，几乎所有事情都由程序员显式处理。
 \subsection{RISC-V的寄存器部分}
 
-
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{寄存器规定.png}
+    \caption{寄存器规定}
+    \label{fig:enter-label}
+\end{figure}
 
 
 一个RISC - V系统由两个主要部分组成：  
@@ -377,20 +382,20 @@ main:
     lw ra, 4(sp)
     addi sp, sp, 8
     addi t0, t0, 3
-    # ...
+     ...
 
 foo:
-    # 函数 foo 的具体实现
-    # 可能会再次调用其他函数
+     函数 foo 的具体实现
+     可能会再次调用其他函数
     jal ra, bar
-    # ...
+     ...
     ret
 ```
 在 `main` 函数里，`jal ra, foo` 指令会把 `ra` 设置为 `lw t0, 0(sp)` 这条指令的地址，接着跳转到 `foo` 函数去执行。
 
 要是 `foo` 函数又调用了别的函数（例如 `bar` 函数），`jal ra, bar` 指令会把 `ra` 设置为调用 `bar` 函数之后紧接着的那条指令的地址，这就会覆盖掉 `ra` 原本保存的返回 `main` 函数的地址。
-
-### 恢复 `ra` 值的必要性
+\par
+ 恢复 `ra` 值的必要性\par
 为了保证在 `foo` 函数执行完毕之后能够正确返回到 `main` 函数中调用 `foo` 之后的下一条指令处继续执行，就需要在调用 `foo` 函数之前把 `ra` 的值保存到栈上（`sw ra, 4(sp)`），在 `foo` 函数执行完毕返回之后再从栈上恢复 `ra` 的值（`lw ra, 4(sp)`）。
 
 总结来说，在函数调用过程中，`ra` 的值会因为嵌套调用其他函数而发生改变，所以必须在函数调用前后保存和恢复 `ra` 的值，以此确保程序能够正确返回。 \par
@@ -444,10 +449,10 @@ I 类型指令格式专为包含 2 个寄存器（`rs1` 和 `rd`）以及 1 个�
 
 需要注意的是，`ecall`（系统调用）和 `ebreak`（调试断点）技术上也属于 I 类型指令，但它们会忽略 `rd`、`rs1` 和立即数，这些字段的值在它们的使用场景中并无实际意义。而存储指令会用到 `rs1` 和 `rs2`，所以为其设计了单独的指令格式。
 
- 指令各字段存储方式
-I 类型指令的大部分组成部分与之前介绍的存储方式相同，只是新增了 `imm`（立即数）部分。立即数存储在 `imm` 组件中。特别要注意 `[11:0]` 这种表示方式，它意味着将立即数的第 11 位存放在指令的第 31 位位置，第 10 位存放在第 30 位位置，以此类推，第 0 位存放在第 20 位位置。
+ 指令各字段存储方式\par
+I 类型指令的大部分组成部分与之前介绍的存储方式相同，只是新增了 `imm`（立即数）部分。立即数存储在 `imm` 组件中。特别要注意 `[11:0]` 这种表示方式，它意味着将立即数的第 11 位存放在指令的第 31 位位置，第 10 位存放在第 30 位位置，以此类推，第 0 位存放在第 20 位位置。\par
 
- I 类型立即数的特点
+ I 类型立即数的特点\par
 - **位数限制**：I 类型的立即数为 12 位。这就决定了我们只能将一个 12 位的整数作为立即数来存储。
 - **数值范围**：大多数指令使用有符号立即数，所以 I 类型立即数的取值范围是 [-2048, 2047]。例如，“`addi sp sp -2048`” 是有效的 RISC - V 代码，而 “`addi sp sp -2052`” 则不是有效的代码。
 - **移位指令特殊情况**：对于移位指令（如 `slli` 逻辑左移立即数、`srli` 逻辑右移立即数、`srai` 算术右移立即数），最大移位量为 31。因为任何更大的移位量都会使所有数据移出寄存器。这些移位指令属于修改后的 I 类型，会额外指定一个 `funct7` 字段。 \par
@@ -781,4 +786,292 @@ PC 相对寻址（beq、bne、jal；auipc/addi）：无需重定位（PIC：位�
 汇编：汇编代码中便于人类阅读的部分是如何被替换为更便于机器识别的特征的。\par
 链接：不同的文件和库是如何整合到最终产品中的。\par
 加载：系统是如何处理我们的代码并使其得以运行的\par
+\section{处理器单元构建}
+\subsubsection{最简单的组合逻辑和有限状态机引入}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{从晶体管到cpu.png}
+    \caption{从晶体管到cpu}
+    \label{fig:enter-label}
+\end{figure}
+
+同步数字系统与 CPU 架构紧密相关，二者是基础与应用、底层与高层的关系，具体体现在以下方面：  \par
+
+1. 同步数字系统是 CPU 架构的底层基础  \par
+- **逻辑基础**：同步数字系统包含时序逻辑（Sequential Logic）和组合逻辑（Combinational Logic）。  
+    - 组合逻辑用于实现即时的逻辑运算与数据处理，例如 CPU 架构中算术逻辑单元（ALU）对数据的加减乘除等操作，本质上依赖组合逻辑实现。  
+    - 时序逻辑通过时钟信号协调系统操作，确保各部件按顺序工作。CPU 架构中的指令执行流水线、寄存器数据更新等，都需要在时钟同步下进行，以保证操作的时序正确性。  
+- **同步机制**：同步数字系统通过统一的时钟信号实现各部件同步，这一机制是 CPU 架构正常运作的关键。例如，CPU 取指令、解码、执行等阶段的切换，都由时钟信号驱动，确保每个操作在准确的时间点执行，避免数据冲突与操作混乱。  \par
+
+ 2. CPU 架构是同步数字系统的高级应用与扩展  \par
+- **功能实现**：CPU 架构中的数据通路（Datapath）、控制逻辑（Control Logic）、流水线（Pipelining）等设计，是对同步数字系统的具体应用。例如，数据通路中数据的流动与处理，依赖同步数字系统的逻辑门电路及时序控制；控制逻辑通过生成控制信号协调各部件，其底层实现基于组合逻辑与时序逻辑的协同工作。  
+- **优化与扩展**：CPU 架构在同步数字系统基础上进行优化创新。如流水线技术将指令执行分为多个阶段，每个阶段在时钟驱动下并行处理不同指令，提升处理效率，这是对同步数字系统时序控制的扩展应用；现代 CPU 架构引入多级缓存（Cache），通过同步机制保证缓存与主存数据的一致性，也是对同步数字系统的灵活运用。  \par
+\subsubsection{晶体管}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{n-type.png}
+    \caption{n-type}
+    \label{fig:enter-label}
+\end{figure}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{p-type.png}
+    \caption{p-type}
+    \label{fig:enter-label}
+\end{figure}
+图示区分：p多了一个小圈
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{使用着两种晶体管构建的逻辑电路示例.png}
+    \caption{使用着两种晶体管构建的逻辑电路示例}
+    \label{fig:enter-label}
+\end{figure}
+\subsubsection{逻辑门}
+具有以下特性的运算符：\par
+一个或多个 1 位输入,
+一个 1 位输出,
+可由晶体管构成,
+可表示为：
+电路图中的一个模块,
+一个真值表（列出所有可能输入对应的输出）,
+一个布尔代数表达式,
+用于执行按位运算,
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{xor.png}
+    \caption{xor}
+    \label{fig:enter-label}
+\end{figure}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{and.png}
+    \caption{and}
+    \label{fig:enter-label}
+\end{figure}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{or.png}
+    \caption{or}
+    \label{fig:enter-label}
+\end{figure}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{not.png}
+    \caption{Enter Caption}
+    \label{fig:enter-label}
+\end{figure}
+\subsubsection{组合逻辑}
+组合逻辑有点像纯函数，不受状态影响，如果不把状态看作一个输入的话\par
+重要的一个技巧是根据真值表简化电路的表达式\par
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{语言中的逻辑操作在布尔表达式中的符号.png}
+    \caption{语言中的逻辑操作在布尔表达式中的符号}
+    \label{fig:enter-label}
+\end{figure}
+、
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{布尔表达式的表.png}
+    \caption{布尔表达式计算技巧的表}
+    \label{fig:enter-label}
+\end{figure}
+给定一个真值表，我们如何将其转换为布尔代数表达式呢？
+思路：找出输出为 1 的每一行。
+当输出（Out）为 1 时，存在以下几种情况：
+（A = 0 且 B = 0 且 C = 1），或者
+（A = 1 且 B = 0 且 C = 1），或者
+（A = 1 且 B = 1 且 C = 1）
+用布尔代数表示就是：(¬A)(¬B)(C) + (A)(¬B)(C) + (A)(B)(C)
+这被称为积之和形式。
+对于输出为 1 的每一行，构建一个乘积项（将输入进行 “与” 运算）。
+然后将所有的乘积项相加（对这些乘积项进行 “或” 运算）。
+
+策略：首先采用积之和形式，然后利用布尔代数定律进行化简。
+\subsubsection{加法器}
+用多个一位加法器在考虑进位输出的情况下模拟多位加法器
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{一位加法器.png}
+    \caption{一位加法器}
+    \label{fig:enter-label}
+\end{figure}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{n位加法器.png}
+    \caption{n位加法器}
+    \label{fig:enter-label}
+\end{figure}
+\subsubsection{有限状态机}
+有限状态机是一种描述不同组件互动导致之间状态改变的数学模型概念。
+有限状态机（FSM）由以下部分组成：  
+- 一组状态  
+- 一个转移函数：\( f(\text{当前状态}, \text{输入}) \rightarrow \text{下一状态}, \text{输出} \)  
+
+运行有限状态机时，重复以下步骤：  
+1. 接收一个输入  
+2. 根据当前状态和输入，转移到下一状态并生成一个输出。
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{图例.png}
+    \caption{Enter Caption}
+    \label{fig:enter-label}
+\end{figure}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{有限状态机图例.png}
+    \caption{有限状态机图例}
+    \label{fig:enter-label}
+\end{figure}
+\subsubsection{从时序逻辑到同步数字系统}
+注：对于逻辑组件中的信号和时间关系图来说，一位的组件图比较明确，多位的话不同位之间相互影响，可能导致很复杂\par
+同步（Synchronous）：彼此在时间上同步，同时发生，同步进行。
+数字（Digital）：对于信号而言，仅采用离散值（即非连续值）。
+与采用中间值（连续值）的模拟（analogue）信号不同。
+系统（Systems）：由一组相互依赖的元素构成的整体。
+同步数字系统（Synchronous Digital System）：作为一个更大整体的一部分，其组成元素在时间上相互同步，并产生离散信号输出的系统。
+时钟（Clock）：在 0 和 1 之间交替的信号。
+上升沿（Rising edge）：时钟信号从 0 切换到 1 的时刻。
+下降沿（Falling edge）：时钟信号从 1 切换到 0 的时刻。
+时钟周期（Clock period）：相邻两个上升沿之间的时间间隔。
+时钟频率（Clock frequency）：每秒内上升沿出现的次数，频率 = 1 / 周期。
+flipflop（触发器）作为在上升沿时刻录入此时D输入值的组件。
+输入：
+单比特值 D
+单比特时钟信号（通常用三角形符号表示）
+输出：
+单比特值 Q
+行为：
+在时钟的上升沿时刻，将 Q 设置为 D 的值。
+在其他所有时刻，输出 Q 保持不变。
+用途：
+**存储数据**：在两次上升沿之间，输出端 Q 的值会保持稳定。  
+**控制数据流**：将输入端 D 的数据保持到下一个上升沿到来（才会更新输出）。
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{触发器行为时间图.png}
+    \caption{触发器行为时间图}
+    \label{fig:enter-label}
+\end{figure}
+
+翻译：  
+**n位寄存器（n-bit register）**：由n个触发器（flip-flop）组合而成的电路。  
+- 每个触发器存储1位数据，寄存器总共存储n位数据。  
+
+#### 输入：  
+- n位输入值 **D**  
+- 1位时钟信号（clock）  
+
+#### 输出：  
+- n位输出值 **Q**  
+
+#### 行为：  
+- 在时钟的上升沿（rising edge），将输出 **Q** 设置为输入 **D** 的值。  
+- 在其他所有时刻，输出 **Q** 保持不变（维持上一次上升沿时采样的值）。  
+
+
+### 关键概念：  
+- **寄存器的本质**：通过多个D触发器并行组合，实现对多位数据的同步存储（所有位在同一个时钟边沿统一更新）。  
+- **同步更新**：依赖时钟信号的边沿触发，确保数据在确定的时间点被采样，避免异步电路的竞争冒险问题，是同步数字系统（如CPU寄存器）的核心组件。
+
+  
+**寄存器/触发器无法立即将D输入传输到Q输出。**  
+**时钟到输出延迟（clk-to-q delay）**：时钟上升沿到来后，Q输出完成变化所需的时间。  
+
+### 原因讲解：  
+1. **电路物理延迟的必然性**：  
+   触发器（Flip-Flop）和寄存器由晶体管、逻辑门等物理器件构成，而信号在这些器件中的传播需要时间。例如：  
+   - 晶体管从截止（Cutoff）到导通（Saturation）或反之，需要时间完成电荷的积累或释放（如栅极电容的充放电）。  
+   - 信号每经过一个逻辑门（如与非门、反相器），都会引入**门延迟**（Gate Delay），触发器内部通常包含多级门电路（如D触发器的边沿检测电路、锁存器结构）。  
+
+2. **触发器的内部结构决定**：  
+   以D触发器为例，其典型结构包含**边沿检测电路**（如基于与非门的边沿触发器）和**锁存器**（Latch）：  
+   - 时钟上升沿到来时，边沿检测电路首先检测到时钟信号的变化，这一过程需要时间。  
+   - 检测到边沿后，输入D的值需要通过锁存器的逻辑路径传递到输出Q，路径上的每一级门电路都会累积延迟。  
+
+3. **信号稳定的时序要求**：  
+   在同步数字系统中，触发器的输出必须在时钟边沿之后的一段时间内**稳定下来**，以确保后续电路（如下一级寄存器或组合逻辑）能正确采样数据。如果传输是“立即”的，反而会导致以下问题：  
+   - 时钟边沿可能在信号尚未稳定时被下一级电路采样，引发**亚稳态**（Metastability）——输出在有效逻辑电平（0/1）之间振荡，导致系统错误。  
+   - 违反电路的**建立时间**（Setup Time）和**保持时间**（Hold Time）约束，破坏时序一致性。  
+
+4. **半导体物理的限制**：  
+   即使在纳米级工艺下，信号在硅片上的传播速度也受限于光速（约0.1m/ns），例如1cm的导线传播延迟约为30ps。触发器内部的导线和晶体管尺寸虽小，但累积的延迟仍不可忽略。  
+
+
+### 总结：  
+clk-to-q延迟是触发器和寄存器的固有属性，由电路的物理特性（门延迟、信号传播）和同步系统的时序要求共同决定。这一延迟是设计数字系统（如CPU、存储器）时必须考虑的关键参数，直接影响时钟频率和系统稳定性——时钟周期必须足够长，以确保在下次边沿到来前，所有触发器的输出已稳定。\par
+任何有时钟控制的元件都称为状态元件（需要时间相关组件才能工作）\par
+示例：触发器（flip-flops）和寄存器（registers）
+组合逻辑元件无需时钟即可工作（持续根据输入即时计算输出）
+示例：逻辑门（logic gates）\par
+组合逻辑电路具有传播延迟：输入变化后输出发生变化所需的时间。
+示例：将输出 Out 设为 A + B 的加法器电路：
+传播延迟的原因与实例解析：
+什么是传播延迟（Propagation Delay）？
+组合逻辑电路由逻辑门（如与门、或门、非门）构成，信号每经过一个门电路都会引入门延迟（Gate Delay）。传播延迟是输入信号变化后，输出信号稳定到正确值所需的总时间，等于信号从输入到输出路径上所有门延迟的累积。
+考虑一个逻辑电路的逻辑延迟，应该考虑所有并行路线中最长的那个部分的延迟，
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{建立时间和保存时间.png}
+    \caption{建立时间和保存时间}
+    \label{fig:enter-label}
+\end{figure}
+建立时间（Setup Time）\par
+定义：建立时间指的是在时钟信号的有效边沿（如上升沿或下降沿）到来之前，输入信号（例如 D 触发器中的 D 输入）必须保持稳定不变的最小时间。只有当输入信号在这个时间内保持稳定，触发器才能正确地将输入信号采样并存储到输出端。
+作用：确保在时钟信号触发时，输入信号已经稳定下来，这样触发器才能准确地读取输入值。如果输入信号在时钟有效边沿到来之前没有满足建立时间的要求，可能会导致触发器进入亚稳态（Metastability），即输出既不是逻辑高电平也不是逻辑低电平，而是处于一个不稳定的中间状态，这可能会引发后续电路的错误操作。
+示例：假设有一个 D 触发器，其建立时间为 2ns。当时钟信号的上升沿即将到来时，D 输入信号必须在上升沿之前至少 2ns 就保持稳定，否则触发器可能无法正确采样该输入信号。\par
+保持时间（Hold Time）\par
+定义：保持时间是指在时钟信号的有效边沿到来之后，输入信号必须继续保持稳定不变的最小时间。这是为了确保触发器在完成采样操作后，输入信号不会立即发生变化，从而影响到已经存储在触发器中的值。
+作用：防止在时钟信号触发后，输入信号的突然变化干扰到触发器对输入信号的正确存储。如果输入信号在时钟有效边沿之后没有满足保持时间的要求，同样可能会导致触发器输出不稳定或出现错误。
+示例：若一个 D 触发器的保持时间为 1ns，那么在时钟信号的上升沿到来之后，D 输入信号需要至少保持 1ns 的稳定，以保证触发器能够正确地存储该输入值。\par
+
+
+
+
+### 最大化时钟频率  \par
+- 建立时间和组合延迟约束：  
+时钟周期 ≥ 时钟到Q输出的延迟 + 最长组合延迟 + 建立时间  
+    - 在上升沿之后，我们必须等待时钟到Q输出的延迟，以便Q输出发生变化。  
+    - 然后，我们必须等待最长组合延迟，以便结果出现在D输入。  
+    - 接着，我们必须让D输入在建立时间内保持稳定。  
+
+### 满足保持时间约束 \par
+- 保持时间约束：  
+保持时间 ≤ 时钟到Q输出的延迟 + 最短组合延迟  
+    - 在上升沿之后，我们必须等待时钟到Q输出的延迟，以便Q输出发生变化。  
+    - 然后，在最短组合延迟之后，D输入之一将改变。  
+    - 我们需要在D输入改变时，保持时间已经结束。 
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.5\linewidth]{选择器电路.png}
+        \caption{选择器电路}
+        \label{fig:enter-label}
+    \end{figure}
+    \subsubsection{ALU逻辑运算单元}
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.5\linewidth]{ALU简图.png}
+        \caption{Enter Caption}
+        \label{fig:enter-label}
+    \end{figure}
+    
+
+
+
+### 算术逻辑单元（ALU）设计：拆分位  
+我们可以将较长的输入拆分成较小的位组来进行操作。  
+**示例**：A和B是3位输入。我们将它们拆分为单个位以执行3位按位与（AND）操作，然后重新组合结果以生成输出。 \par
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{四选择器.png}
+    \caption{四选择器}
+    \label{fig:enter-label}
+\end{figure}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{ALU电路.png}
+    \caption{ALU电路}
+    \label{fig:enter-label}
+\end{figure}
 \end{document}
